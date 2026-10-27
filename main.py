@@ -137,9 +137,9 @@ class DesktopPet(QWidget):
         self.exp = 0
         self.max_exp = 100
 
-        self.hunger = 70
-        self.happiness = 70
-        self.cleanliness = 100
+        self.hunger = 90
+        self.happiness = 90
+        self.cleanliness = 0
 
         self.state = "Walk"
 
@@ -264,6 +264,12 @@ class DesktopPet(QWidget):
             for i in range(1, 5)
         ]
 
+        # 놀기 애니메이션 (4장)
+        self.play_frames = [
+            load_image(self.assets_path / f"play{i}.png")
+            for i in range(1, 5)
+        ]
+
         self.idle_image = load_image(
             self.assets_path / "idle.png"
         )
@@ -278,6 +284,10 @@ class DesktopPet(QWidget):
 
         self.angry_image = load_image(
             self.assets_path / "angry.png"
+        )
+
+        self.hungry_image = load_image(
+            self.assets_path / "hungry.png"
         )
 
         self.wash_image = load_image(
@@ -376,10 +386,18 @@ class DesktopPet(QWidget):
         return self.cleanliness <= 0
 
     def is_angry(self):
-        return (
-            self.hunger <= 0
-            or self.happiness <= 0
-        )
+        return self.happiness <= 0
+
+    def is_hungry(self):
+        return self.hunger <= 0
+
+    def get_need_state(self):
+        # 포만도 0이 행복도 0보다 우선
+        if self.is_hungry():
+            return "Hungry"
+        if self.is_angry():
+            return "Angry"
+        return None
 
     # ======================================
     # 이미지 변경
@@ -407,6 +425,9 @@ class DesktopPet(QWidget):
         elif self.state == "Eat":
             frame = self.eat_frames[self.frame_index]
 
+        elif self.state == "Play":
+            frame = self.play_frames[self.frame_index]
+
         elif self.state == "CoverEars":
             frame = self.cover_ears_frames[
                 self.frame_index
@@ -426,6 +447,9 @@ class DesktopPet(QWidget):
 
         elif self.state == "Angry":
             frame = self.angry_image
+
+        elif self.state == "Hungry":
+            frame = self.hungry_image
 
         else:
             return
@@ -448,6 +472,7 @@ class DesktopPet(QWidget):
             "Walk",
             "Dirty",
             "Eat",
+            "Play",
             "CoverEars"
         ]
 
@@ -543,12 +568,13 @@ class DesktopPet(QWidget):
             return
 
         if self.state in [
-            "Eat", "Happy", "Wash"
+            "Eat", "Happy", "Wash", "Play"
         ]:
             return
 
-        if self.is_angry():
-            self.set_state("Angry")
+        need_state = self.get_need_state()
+        if need_state:
+            self.set_state(need_state)
             return
 
         if self.is_dirty():
@@ -580,6 +606,9 @@ class DesktopPet(QWidget):
         self.state = new_state
         self.frame_index = 0
 
+        # 놀기만 300ms, 나머지 애니메이션은 기존 150ms
+        self.animation_timer.setInterval(300 if new_state == "Play" else 150)
+
         self.update_image()
         self.update_state_label()
 
@@ -587,6 +616,7 @@ class DesktopPet(QWidget):
     # 경험치 및 레벨업
     # ======================================
 
+    
     def gain_exp(self, amount):
 
         self.exp += amount
@@ -601,9 +631,8 @@ class DesktopPet(QWidget):
                 f"🎉 레벨 업! Lv.{self.level}"
             )
 
-            # 5, 10, 15, 20레벨 특별 이벤트
-            if self.level in [5, 10, 15, 20]:
-                self.event_queue.append(self.level)
+            # 레벨업할 때마다 특별 이벤트 예약
+            self.event_queue.append(self.level)
 
         # 이벤트가 예약되어 있으면 실행
         if self.event_queue and not self.event_active:
@@ -611,6 +640,7 @@ class DesktopPet(QWidget):
             # 현재 상호작용이 끝난 다음 실행
             if not self.interaction_timer.isActive():
                 self.start_special_event()
+
 
     # ======================================
     # 특별 이벤트 시작
@@ -759,7 +789,7 @@ class DesktopPet(QWidget):
         self.set_state("CoverEars")
 
         self.show_message(
-            "😱 으아아아!!"
+            "😱 저리가!!!"
         )
 
         # 2초 동안 소리 지르는 애니메이션
@@ -817,8 +847,9 @@ class DesktopPet(QWidget):
         self.event_pet_position = None
 
         # 이벤트 종료 후 상태 복귀
-        if self.is_angry():
-            self.set_state("Angry")
+        need_state = self.get_need_state()
+        if need_state:
+            self.set_state(need_state)
 
         elif self.is_dirty():
             self.set_state("Dirty")
@@ -840,29 +871,21 @@ class DesktopPet(QWidget):
     # ======================================
 
     def check_angry(self):
+        # 기존 함수 이름 유지: 배고픔/화남을 함께 확인
+        need_state = self.get_need_state()
 
         if self.event_active:
-            return self.is_angry()
+            return need_state is not None
 
-        if self.is_angry():
-
-            if self.state not in [
-                "Eat", "Happy", "Wash"
-            ]:
-
+        if need_state:
+            if self.state not in ["Eat", "Happy", "Wash", "Play"]:
                 self.state_timer.stop()
-
-                if self.state != "Angry":
-                    self.set_state("Angry")
-
+                if self.state != need_state:
+                    self.set_state(need_state)
             return True
 
-        if self.state == "Angry":
-
-            self.set_state(
-                "Dirty" if self.is_dirty() else "Idle"
-            )
-
+        if self.state in ["Angry", "Hungry"]:
+            self.set_state("Dirty" if self.is_dirty() else "Idle")
             self.schedule_next_state()
 
         return False
@@ -880,15 +903,18 @@ class DesktopPet(QWidget):
 
         self.set_state(new_state)
 
-        self.interaction_timer.start(2000)
+        self.interaction_timer.start(3000 if new_state == "Play" else 2000)
 
     def finish_interaction(self):
 
         if self.event_active:
             return
 
-        if self.is_angry():
-            self.set_state("Angry")
+        was_playing = self.state == "Play"
+
+        need_state = self.get_need_state()
+        if need_state:
+            self.set_state(need_state)
 
         else:
             self.set_state(
@@ -896,6 +922,10 @@ class DesktopPet(QWidget):
             )
 
             self.schedule_next_state()
+
+        # 놀기 애니메이션이 끝나면 경험치만 +20
+        if was_playing:
+            self.gain_exp(20)
 
         # 상호작용 종료 후 특별 이벤트 실행
         if self.event_queue:
@@ -915,10 +945,12 @@ class DesktopPet(QWidget):
             "Idle": "💛 쉬는 중",
             "Sleep": "💤 Zzz...",
             "Dirty": "💩 시궁창에 빠져버렸어!",
-            "Eat": "🍎 밥 먹는 중",
+            "Eat": "🍎 짭쪼롬하니 마싯따~",
+            "Play": "🎮 이야 이야다이야다!",
             "Happy": "💕 행복해!",
             "Wash": "🛁 씻는 중",
-            "Angry": "😠 기분이 나빠!",
+            "Angry": "😠 나 위로해줘!",
+            "Hungry": "🍽️ 배가 너무 고파!",
             "CoverEars": "🙉 귀 막는 중!"
         }
 
@@ -950,14 +982,14 @@ class DesktopPet(QWidget):
         if self.event_active:
             return
 
-        if self.is_angry():
+        if self.get_need_state():
             self.check_angry()
             return
 
         if not was_dirty and self.is_dirty():
 
             if self.state not in [
-                "Eat", "Happy", "Wash"
+                "Eat", "Happy", "Wash", "Play"
             ]:
 
                 self.state_timer.stop()
@@ -972,18 +1004,18 @@ class DesktopPet(QWidget):
 
     def feed_pet(self):
 
-        if self.event_active:
+        if self.event_active or self.interaction_timer.isActive():
             return
 
         self.hunger = min(
             100, self.hunger + 20
         )
 
-        self.gain_exp(10)
         self.play_interaction("Eat")
+        self.gain_exp(10)
 
         self.show_message(
-            "냠냠! 맛있어! 🍎"
+            "냠냠! 🍎"
         )
 
     # ======================================
@@ -992,15 +1024,15 @@ class DesktopPet(QWidget):
 
     def pet_pet(self):
 
-        if self.event_active:
+        if self.event_active or self.interaction_timer.isActive():
             return
 
         self.happiness = min(
             100, self.happiness + 15
         )
 
-        self.gain_exp(15)
         self.play_interaction("Happy")
+        self.gain_exp(15)
 
         self.show_message(
             "기분이 좋아졌어! 💕"
@@ -1012,17 +1044,29 @@ class DesktopPet(QWidget):
 
     def wash_pet(self):
 
-        if self.event_active:
+        if self.event_active or self.interaction_timer.isActive():
             return
 
         self.cleanliness = 100
 
-        self.gain_exp(10)
         self.play_interaction("Wash")
+        self.gain_exp(10)
 
         self.show_message(
-            "🛁 깨끗해졌어! ✨"
+            "🛁 푸르르르르! ✨"
         )
+
+    # ======================================
+    # 놀기 (경험치만 +20)
+    # ======================================
+
+    def play_pet(self):
+
+        if self.event_active or self.interaction_timer.isActive():
+            return
+
+        self.play_interaction("Play")
+        self.show_message("🎮 싫어~싫어싫~어!")
 
     # ======================================
     # 상태 확인
@@ -1095,6 +1139,7 @@ class DesktopPet(QWidget):
 
         feed_action = menu.addAction("🍎 밥 주기")
         pet_action = menu.addAction("💕 쓰다듬기")
+        play_action = menu.addAction("🎮 놀기")
         wash_action = menu.addAction("🛁 씻기기")
         status_action = menu.addAction("📊 상태 확인")
 
@@ -1115,6 +1160,9 @@ class DesktopPet(QWidget):
 
         elif selected == pet_action:
             self.pet_pet()
+
+        elif selected == play_action:
+            self.play_pet()
 
         elif selected == wash_action:
             self.wash_pet()
